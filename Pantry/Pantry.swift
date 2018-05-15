@@ -8,7 +8,7 @@
 
 import Foundation
 
-/** 
+/**
  # Pantry 
 
  Pantry is a lightweight way to persist structs containing user data, 
@@ -32,6 +32,12 @@ import Foundation
  ```
  */
 open class Pantry {
+    
+    public enum PersistenceType {
+        case permanent
+        case volatile
+    }
+    
     // Set to a string identifier to enable in memory mode with no persistent caching. Useful for unit testing.
     open static var enableInMemoryModeWithIdentifier: String?
 
@@ -43,8 +49,8 @@ open class Pantry {
      - parameter key: The object's key
      - parameter expires: The storage expiration. Defaults to `Never`
      */
-    open static func pack<T: Storable>(_ object: T, key: String, expires: StorageExpiry = .never) {
-        let warehouse = getWarehouse(key)
+    open static func pack<T: Storable>(_ object: T, key: String, expires: StorageExpiry = .never, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         warehouse.write(object.toDictionary() as Any, expires: expires)
     }
@@ -54,8 +60,8 @@ open class Pantry {
      - parameter objects: Generic collection of objects that will be stored
      - parameter key: The objects' key
      */
-    open static func pack<T: Storable>(_ objects: [T], key: String, expires: StorageExpiry = .never) {
-        let warehouse = getWarehouse(key)
+    open static func pack<T: Storable>(_ objects: [T], key: String, expires: StorageExpiry = .never, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         var result = [Any]()
         for object in objects {
@@ -73,8 +79,8 @@ open class Pantry {
      
      - SeeAlso: `StorableDefaultType`
      */
-    open static func pack<T: StorableDefaultType>(_ object: T, key: String, expires: StorageExpiry = .never) {
-        let warehouse = getWarehouse(key)
+    open static func pack<T: StorableDefaultType>(_ object: T, key: String, expires: StorageExpiry = .never, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         warehouse.write(object as Any, expires: expires)
     }
@@ -86,8 +92,8 @@ open class Pantry {
 
      - SeeAlso: `StorableDefaultType`
      */
-    open static func pack<T: StorableDefaultType>(_ objects: [T], key: String, expires: StorageExpiry = .never) {
-        let warehouse = getWarehouse(key)
+    open static func pack<T: StorableDefaultType>(_ objects: [T], key: String, expires: StorageExpiry = .never, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         var result = [Any]()
         for object in objects {
@@ -104,8 +110,8 @@ open class Pantry {
 
      - SeeAlso: `StorableDefaultType`
      */
-    open static func pack<T: StorableDefaultType>(_ objects: [T?], key: String, expires: StorageExpiry = .never) {
-        let warehouse = getWarehouse(key)
+    open static func pack<T: StorableDefaultType>(_ objects: [T?], key: String, expires: StorageExpiry = .never, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         var result = [Any]()
         for object in objects {
@@ -123,8 +129,8 @@ open class Pantry {
     - parameter key: The object's key
     - returns: T?
     */
-    open static func unpack<T: Storable>(_ key: String) -> T? {
-        let warehouse = getWarehouse(key)
+    open static func unpack<T: Storable>(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) -> T? {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         if warehouse.cacheExists() {
             return T(warehouse: warehouse)
@@ -138,8 +144,8 @@ open class Pantry {
      - parameter key: The objects' key
      - returns: [T]?
      */
-    open static func unpack<T: Storable>(_ key: String) -> [T]? {
-        let warehouse = getWarehouse(key)
+    open static func unpack<T: Storable>(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) -> [T]? {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
 
         guard warehouse.cacheExists(),
             let cache = warehouse.loadCache() as? Array<Any> else {
@@ -162,8 +168,8 @@ open class Pantry {
 
      - SeeAlso: `StorableDefaultType`
      */
-    open static func unpack<T: StorableDefaultType>(_ key: String) -> [T]? {
-        let warehouse = getWarehouse(key)
+    open static func unpack<T: StorableDefaultType>(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) -> [T]? {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         
         guard warehouse.cacheExists(),
             let cache = warehouse.loadCache() as? Array<Any> else {
@@ -183,8 +189,8 @@ open class Pantry {
 
      - SeeAlso: `StorableDefaultType`
      */
-    open static func unpack<T: StorableDefaultType>(_ key: String) -> T? {
-        let warehouse = getWarehouse(key)
+    open static func unpack<T: StorableDefaultType>(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) -> T? {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
 
         guard warehouse.cacheExists(),
             let cache = warehouse.loadCache() as? T else {
@@ -198,8 +204,8 @@ open class Pantry {
      Expire a given object
      - parameter key: The object's key
      */
-    open static func expire(_ key: String) {
-        let warehouse = getWarehouse(key)
+    open static func expire(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
 
         warehouse.removeCache()
     }
@@ -207,36 +213,36 @@ open class Pantry {
     /// Deletes all the cache
     ///
     /// - Note: This will clear in-memory as well as JSON cache
-    open static func removeAllCache() {
+    open static func removeAllCache(for persistenceType: PersistenceType) {
         ///Blindly remove all the data!
-        MemoryWarehouse.removeAllCache()
-        JSONWarehouse.removeAllCache()
+        MemoryWarehouse.removeAllCache(for: persistenceType)
+        JSONWarehouse.removeAllCache(for: persistenceType)
     }
 
-    open static func itemExistsForKey(_ key: String) -> Bool {
-        let warehouse = getWarehouse(key)
+    open static func itemExistsForKey(_ key: String, persistenceType: Pantry.PersistenceType = .volatile) -> Bool {
+        let warehouse = getWarehouse(key, persistenceType: persistenceType)
         return warehouse.cacheExists()
     }
 
-    static func unpack<T: Storable>(_ dictionary: [String: Any]) -> T? {
-        let warehouse = getWarehouse(dictionary as Any)
+    static func unpack<T: Storable>(_ dictionary: [String: Any], persistenceType: Pantry.PersistenceType = .volatile) -> T? {
+        let warehouse = getWarehouse(dictionary as Any, persistenceType: persistenceType)
         
         return T(warehouse: warehouse)
     }
 
-    static func getWarehouse(_ forKey: String) -> Warehouseable & WarehouseCacheable {
+    static func getWarehouse(_ forKey: String, persistenceType: Pantry.PersistenceType = .volatile) -> Warehouseable & WarehouseCacheable {
         if let inMemoryIdentifier = Pantry.enableInMemoryModeWithIdentifier {
             return MemoryWarehouse(key: forKey, inMemoryIdentifier: inMemoryIdentifier)
         } else {
-            return JSONWarehouse(key: forKey)
+            return JSONWarehouse(key: forKey, persistenceType: persistenceType)
         }
     }
 
-    static func getWarehouse(_ forContext: Any) -> Warehouseable {
+    static func getWarehouse(_ forContext: Any, persistenceType: Pantry.PersistenceType = .volatile) -> Warehouseable {
         if let inMemoryIdentifier = Pantry.enableInMemoryModeWithIdentifier {
             return MemoryWarehouse(context: forContext, inMemoryIdentifier: inMemoryIdentifier)
         } else {
-            return JSONWarehouse(context: forContext)
+            return JSONWarehouse(context: forContext, persistenceType: persistenceType)
         }
     }
 }

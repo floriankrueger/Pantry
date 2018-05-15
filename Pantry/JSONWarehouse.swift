@@ -14,14 +14,17 @@ JSONWarehouse serializes and deserializes data
 A `JSONWarehouse` is passed in the init function of a struct that conforms to `Storable`
 */
 open class JSONWarehouse: Warehouseable, WarehouseCacheable {
+    let persistenceType: Pantry.PersistenceType
     var key: String
     var context: Any?
 
-    public init(key: String) {
+    public init(key: String, persistenceType: Pantry.PersistenceType) {
+        self.persistenceType = persistenceType
         self.key = key
     }
 
-    public init(context: Any) {
+    public init(context: Any, persistenceType: Pantry.PersistenceType) {
+        self.persistenceType = persistenceType
         self.key = ""
         self.context = context
     }
@@ -78,7 +81,7 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
                 return nil
         }
 
-        let warehouse = JSONWarehouse(context: result)
+        let warehouse = JSONWarehouse(context: result, persistenceType: persistenceType)
         return T(warehouse: warehouse)
     }
 
@@ -98,7 +101,7 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
 
         var unpackedItems = [T]()
         for case let item as [String: Any] in result {
-            let warehouse = JSONWarehouse(context: item)
+            let warehouse = JSONWarehouse(context: item, persistenceType: persistenceType)
             if let item = T(warehouse: warehouse) {
                 unpackedItems.append(item)
             }
@@ -108,7 +111,7 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
     }
 
     func write(_ object: Any, expires: StorageExpiry) {
-        let cacheLocation = cacheFileURL()
+        let fileURL = self.fileURL()
         var storableDictionary: [String: Any] = [:]
         
         storableDictionary["expires"] = expires.toDate().timeIntervalSince1970
@@ -122,7 +125,7 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
         do {
             let data = try JSONSerialization.data(withJSONObject: storableDictionary, options: .prettyPrinted)
 
-            try data.write(to: cacheLocation, options: .atomic)
+            try data.write(to: fileURL, options: .atomic)
         } catch {
             debugPrint("\(error)")
         }
@@ -130,15 +133,15 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
     
     func removeCache() {
         do {
-            try FileManager.default.removeItem(at: cacheFileURL())
+            try FileManager.default.removeItem(at: fileURL())
         } catch {
             print("error removing cache", error)
         }
     }
     
-    static func removeAllCache() {
+    static func removeAllCache(for persistenceType: Pantry.PersistenceType) {
         do {
-            try FileManager.default.removeItem(at: JSONWarehouse.cacheDirectory)
+            try FileManager.default.removeItem(at: fileDirectory(for: persistenceType))
         } catch {
             print("error removing all cache",error)
         }
@@ -149,21 +152,21 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
             return context
         }
 
-        let cacheLocation = cacheFileURL()
+        let fileURL = self.fileURL()
 
         // legacy format
-        if let metaDictionary = NSDictionary(contentsOf: cacheLocation),
+        if let metaDictionary = NSDictionary(contentsOf: fileURL),
             let cache = metaDictionary["storage"] {
             return cache
         }
         
-        if let data = try? Data(contentsOf: cacheLocation),
+        if let data = try? Data(contentsOf: fileURL),
             let metaDictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let cache = metaDictionary?["storage"] {
             return cache
         }
 
-        if let data = try? Data(contentsOf: cacheLocation),
+        if let data = try? Data(contentsOf: fileURL),
             let metaDictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let cache = metaDictionary?["storage"] {
             return cache
@@ -173,19 +176,19 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
     }
     
     func cacheExists() -> Bool {
-        let cacheFileURL = self.cacheFileURL()
+        let fileURL = self.fileURL()
         
-        guard FileManager.default.fileExists(atPath: cacheFileURL.path) else { return false }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return false }
         
         var optionalDictionary: [String: Any?]? = nil
         
         // legacy format
-        if let dictionary = NSDictionary(contentsOf: cacheFileURL) as? [String: Any?] {
+        if let dictionary = NSDictionary(contentsOf: fileURL) as? [String: Any?] {
             optionalDictionary = dictionary
         }
         
         // new format
-        if let data = try? Data(contentsOf: cacheFileURL),
+        if let data = try? Data(contentsOf: fileURL),
         let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             optionalDictionary = dictionary
         }
@@ -209,24 +212,44 @@ open class JSONWarehouse: Warehouseable, WarehouseCacheable {
         }
     }
     
-    static var cacheDirectory: URL {
+    static func fileDirectory(for persistenceType: Pantry.PersistenceType) -> URL {
+        switch persistenceType {
+        case .permanent:    return JSONWarehouse.documentDirectory
+        case .volatile:     return JSONWarehouse.FIXcacheDirectory
+        }
+    }
+    
+    static var documentDirectory: URL {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        
+        let writeDirectory = url.appendingPathComponent("com.thatthinginswift.pantry")
+        return writeDirectory
+    }
+    
+    static var FIXcacheDirectory: URL {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         
         let writeDirectory = url.appendingPathComponent("com.thatthinginswift.pantry")
         return writeDirectory
     }
     
-    func cacheFileURL() -> URL {
-        let cacheDirectory = JSONWarehouse.cacheDirectory
-
-        let cacheLocation = cacheDirectory.appendingPathComponent(self.key)
-
-        do {
-            try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("couldn't create directories to \(cacheLocation)")
+    func fileURL() -> URL {
+        let directory: URL
+        
+        switch persistenceType {
+        case .permanent:    directory = JSONWarehouse.documentDirectory
+        case .volatile:     directory = JSONWarehouse.FIXcacheDirectory
         }
-
-        return cacheLocation
+        
+        let documentLocation = directory.appendingPathComponent(self.key)
+        
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            print("couldn't create directories to \(documentLocation)")
+        }
+        
+        return documentLocation
     }
+    
 }
